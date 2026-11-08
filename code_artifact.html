@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>打氣青蛙：正壓通氣生理大挑戰 (Buccal Pumping Game)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Noto+Sans+TC:wght@400;600;700;900&family=JetBrains+Mono:wght@500;700&display=swap');
+    body {
+      font-family: 'Noto Sans TC', sans-serif;
+      user-select: none;
+    }
+    .font-game {
+      font-family: 'Fredoka', 'Noto Sans TC', sans-serif;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    /* 鍵盤指引按鍵樣式 */
+    .kbc {
+      box-shadow: 0 4px 0 #334155;
+      transition: all 0.08s ease;
+    }
+    .kbc:active, .kbc.pressed {
+      transform: translateY(3px);
+      box-shadow: 0 1px 0 #334155;
+    }
+    /* 呼吸循環指示光環 */
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 0.3; transform: scale(1); }
+      50% { opacity: 0.7; transform: scale(1.05); }
+    }
+    .glow-hint {
+      animation: pulseGlow 1.8s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between selection:bg-emerald-500 selection:text-white">
+
+  <!-- 頂部資訊列 -->
+  <header class="bg-slate-900/90 border-b border-slate-800 px-4 md:px-8 py-3 flex items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 text-2xl shadow-inner">
+        🐸
+      </div>
+      <div>
+        <h1 class="text-base md:text-lg font-black tracking-tight flex items-center gap-2">
+          <span>正壓通氣大考驗</span>
+          <span class="text-xs font-mono font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">Buccal Pumping</span>
+        </h1>
+        <p class="text-xs text-slate-400">當好青蛙的打氣筒神經中樞！協同鼻孔、咽喉與聲門完成氣體交換</p>
+      </div>
+    </div>
+
+    <!-- 遊戲即時分數與階段 -->
+    <div class="flex items-center gap-4 text-xs font-mono">
+      <div class="bg-slate-950 px-3.5 py-1.5 rounded-xl border border-slate-800 flex items-center gap-2">
+        <span class="text-slate-400 font-sans">關卡:</span>
+        <span id="levelBadge" class="font-bold text-amber-400">1. 平靜吸憩</span>
+      </div>
+      <div class="bg-slate-950 px-3.5 py-1.5 rounded-xl border border-slate-800 flex items-center gap-2">
+        <span class="text-slate-400 font-sans">完美循環:</span>
+        <span id="scoreBadge" class="font-bold text-emerald-400 text-sm">0</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- 主遊戲視窗 (兩欄：左側動態畫布，右側生理儀表與控制指引) -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-3 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+    
+    <!-- 左側：視覺動畫與互動畫布 (佔 8 欄) -->
+    <div class="lg:col-span-8 flex flex-col gap-3">
+      <div class="relative bg-slate-900 border border-slate-800 rounded-3xl p-3 md:p-4 shadow-2xl flex flex-col items-center justify-between overflow-hidden">
+        
+        <!-- 當前建議動作即時提示條 -->
+        <div class="w-full flex items-center justify-between bg-slate-950/80 px-4 py-2.5 rounded-2xl border border-slate-800/80 text-xs mb-2">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+            <span class="text-slate-400 font-semibold">神經指令提示：</span>
+            <span id="guideHintText" class="font-bold text-white tracking-wide">
+              第 1 步：打開鼻孔，向下擴張口咽底板！
+            </span>
+          </div>
+          <div class="text-[11px] font-mono text-slate-400 flex items-center gap-1.5">
+            <span id="cycleStepTag" class="px-2 py-0.5 rounded bg-sky-950 text-sky-400 font-bold">1 / 4 吸氣裝填</span>
+          </div>
+        </div>
+
+        <!-- 遊戲主畫布 (Canvas) -->
+        <div class="relative w-full aspect-[16/10] max-h-[460px] rounded-2xl overflow-hidden bg-gradient-to-b from-slate-950 to-slate-900 border border-slate-800/50 flex items-center justify-center">
+          <canvas id="gameCanvas" width="800" height="500" class="w-full h-full block cursor-crosshair"></canvas>
+          
+          <!-- 警報與提示浮層 -->
+          <div id="toastAlert" class="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full text-xs font-bold font-mono transition-all duration-200 opacity-0 pointer-events-none border shadow-lg flex items-center gap-1.5">
+            <span>通知訊息</span>
+          </div>
+
+          <!-- 遊戲結束/過關覆蓋層 (Modal) -->
+          <div id="gameModal" class="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-20 hidden">
+            <div id="modalIcon" class="text-5xl mb-2">🏆</div>
+            <h2 id="modalTitle" class="text-2xl font-black text-white mb-2">挑戰成功！</h2>
+            <p id="modalDesc" class="text-xs text-slate-300 max-w-sm mb-6 leading-relaxed">
+              你熟練地掌握了口咽腔正壓通氣！青蛙順利完成了氧氣補充。
+            </p>
+            <div class="flex items-center gap-3">
+              <button id="modalRestartBtn" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold text-sm text-white shadow-lg shadow-emerald-600/30 transition active:scale-95">
+                再玩一次
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 底部控制按鈕列 (支援滑鼠點擊/觸控，亦支援鍵盤) -->
+        <div class="w-full mt-3 grid grid-cols-3 gap-2 md:gap-3">
+          
+          <!-- 控制 1：外鼻孔 (Nares) -->
+          <button id="ctrlNostrilBtn" class="kbc p-3 rounded-2xl bg-slate-800 border border-slate-700 flex flex-col items-center text-center group">
+            <div class="flex items-center gap-1 text-slate-400 text-[11px] font-mono mb-1">
+              <span class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 font-bold text-sky-400">A</span>
+              <span>鍵 / 點擊</span>
+            </div>
+            <span class="font-bold text-xs text-slate-200 group-hover:text-white transition">外鼻孔 (Nostril)</span>
+            <span id="btnStatusNostril" class="mt-1 text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+              開啟中 (Open)
+            </span>
+          </button>
+
+          <!-- 控制 2：口咽腔底板 (Hyoid Piston) -->
+          <button id="ctrlThroatBtn" class="kbc p-3 rounded-2xl bg-slate-800 border border-slate-700 flex flex-col items-center text-center group">
+            <div class="flex items-center gap-1 text-slate-400 text-[11px] font-mono mb-1">
+              <span class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 font-bold text-amber-400">S</span>
+              <span>鍵 / 點擊</span>
+            </div>
+            <span class="font-bold text-xs text-slate-200 group-hover:text-white transition">咽底活塞 (Throat)</span>
+            <span id="btnStatusThroat" class="mt-1 text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/40">
+              向下吸氣 (Drop)
+            </span>
+          </button>
+
+          <!-- 控制 3：喉門聲門 (Glottis) -->
+          <button id="ctrlGlottisBtn" class="kbc p-3 rounded-2xl bg-slate-800 border border-slate-700 flex flex-col items-center text-center group">
+            <div class="flex items-center gap-1 text-slate-400 text-[11px] font-mono mb-1">
+              <span class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 font-bold text-rose-400">D</span>
+              <span>鍵 / 點擊</span>
+            </div>
+            <span class="font-bold text-xs text-slate-200 group-hover:text-white transition">肺門聲門 (Glottis)</span>
+            <span id="btnStatusGlottis" class="mt-1 text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/40">
+              閉鎖中 (Closed)
+            </span>
+          </button>
+
+        </div>
+
+      </div>
+
+      <!-- 快速模式切換 -->
+      <div class="flex items-center justify-between text-xs px-2 text-slate-400">
+        <div class="flex items-center gap-2">
+          <span>模式：</span>
+          <button id="modePractice" class="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold transition">教學練習</button>
+          <button id="modeArcade" class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 hover:text-white transition">極限求生挑戰</button>
+        </div>
+        <span>快速鍵: [A] 鼻孔開閉 · [S] 咽喉起伏 · [D] 聲門開合</span>
+      </div>
+    </div>
+
+    <!-- 右側：生理儀表板與呼吸四步力學拆解 (佔 4 欄) -->
+    <div class="lg:col-span-4 flex flex-col gap-4">
+      
+      <!-- 生理即時數值儀表 -->
+      <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col gap-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <h2 class="text-xs font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
+            <i class="ph-bold ph-heartbeat text-base"></i>
+            <span>青蛙即時生理狀態 (Vital Signs)</span>
+          </h2>
+          <span id="heartRateText" class="text-xs font-mono text-slate-400">HR: 42 bpm</span>
+        </div>
+
+        <!-- 1. 血液氧合程度 (SpO2) -->
+        <div class="flex flex-col gap-1.5">
+          <div class="flex justify-between items-center text-xs">
+            <span class="text-slate-300 font-semibold flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-sky-400"></span>
+              <span>血氧濃度 (Blood Oxygen, SpO2)</span>
+            </span>
+            <span id="oxygenValText" class="font-mono font-bold text-sky-400 text-sm">82%</span>
+          </div>
+          <div class="w-full bg-slate-950 h-3 rounded-full overflow-hidden p-0.5 border border-slate-800">
+            <div id="oxygenBar" class="h-full rounded-full bg-gradient-to-r from-rose-500 via-amber-400 to-sky-400 transition-all duration-150" style="width: 82%"></div>
+          </div>
+        </div>
+
+        <!-- 2. 肺部充氣正壓 (Lung Pressure) -->
+        <div class="flex flex-col gap-1.5">
+          <div class="flex justify-between items-center text-xs">
+            <span class="text-slate-300 font-semibold flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span>肺部容量 (Lung Volume)</span>
+            </span>
+            <span id="lungValText" class="font-mono font-bold text-emerald-400 text-sm">35%</span>
+          </div>
+          <div class="w-full bg-slate-950 h-3 rounded-full overflow-hidden p-0.5 border border-slate-800">
+            <div id="lungBar" class="h-full rounded-full bg-emerald-500 transition-all duration-150" style="width: 35%"></div>
+          </div>
+        </div>
+
+        <!-- 3. 口腔氣流儲備 (Buccal Reservoir) -->
+        <div class="flex flex-col gap-1.5">
+          <div class="flex justify-between items-center text-xs">
+            <span class="text-slate-300 font-semibold flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+              <span>口咽腔狀態</span>
+            </span>
+            <span id="buccalStatusText" class="font-mono text-xs font-bold text-amber-300">中立常壓</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 四步打氣順序檢查清單 (隨玩家動作實時對應反饋) -->
+      <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col gap-3">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+            <i class="ph-bold ph-list-checks text-emerald-400 text-base"></i>
+            <span>打氣活塞 4 步循環 (Pumping Cycle)</span>
+          </span>
+          <span class="text-[10px] font-mono text-slate-400">SOP</span>
+        </div>
+
+        <div class="space-y-2 text-xs">
+          <!-- Step 1 -->
+          <div id="checklist1" class="p-2.5 rounded-xl border border-sky-500/50 bg-sky-500/10 transition flex items-center justify-between">
+            <div class="flex flex-col">
+              <span class="font-bold text-sky-300">1. 吸氣充裝 (Aspiration)</span>
+              <span class="text-[11px] text-slate-400">鼻孔開 🟢 · 喉底降 ⬇️ · 聲門閉 🔴</span>
+            </div>
+            <i id="checkIcon1" class="ph-bold ph-arrow-right text-sky-400 text-base"></i>
+          </div>
+
+          <!-- Step 2 -->
+          <div id="checklist2" class="p-2.5 rounded-xl border border-slate-800 bg-slate-950/40 transition flex items-center justify-between opacity-60">
+            <div class="flex flex-col">
+              <span class="font-bold text-slate-200">2. 正壓打氣入肺 (Pressurization)</span>
+              <span class="text-[11px] text-slate-400">鼻孔閉 🔴 · 喉底推 ⬆️ · 聲門開 🟢</span>
+            </div>
+            <i id="checkIcon2" class="ph-bold ph-circle text-slate-600 text-base"></i>
+          </div>
+
+          <!-- Step 3 -->
+          <div id="checklist3" class="p-2.5 rounded-xl border border-slate-800 bg-slate-950/40 transition flex items-center justify-between opacity-60">
+            <div class="flex flex-col">
+              <span class="font-bold text-slate-200">3. 肺彈性排氣 (Lung Recoil)</span>
+              <span class="text-[11px] text-slate-400">肺回縮 · 喉底降 ⬇️ (收納廢氣)</span>
+            </div>
+            <i id="checkIcon3" class="ph-bold ph-circle text-slate-600 text-base"></i>
+          </div>
+
+          <!-- Step 4 -->
+          <div id="checklist4" class="p-2.5 rounded-xl border border-slate-800 bg-slate-950/40 transition flex items-center justify-between opacity-60">
+            <div class="flex flex-col">
+              <span class="font-bold text-slate-200">4. 噴射排出 (Expulsion)</span>
+              <span class="text-[11px] text-slate-400">聲門閉 🔴 · 鼻孔開 🟢 · 喉底推 ⬆️</span>
+            </div>
+            <i id="checkIcon4" class="ph-bold ph-circle text-slate-600 text-base"></i>
+          </div>
+        </div>
+
+        <!-- 錯誤懲罰警語 -->
+        <div class="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-[11px] text-rose-300 leading-relaxed">
+          ⚠️ <strong>注意力學禁忌：</strong>若在「鼻孔敞開」時打開聲門並壓縮喉底，氣體會直接往鼻孔漏失，無法將正壓灌入肺部！
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <footer class="bg-slate-950 border-t border-slate-800/80 px-6 py-2.5 text-center text-xs text-slate-400">
+    兩棲類生理學互動遊戲 · 正壓通氣（Buccal Pumping）· 演講與教學展示專用
+  </footer>
+
+  <!-- 遊戲腳本、物理微粒模擬與生理邏輯 -->
+  <script>
+    // --- 取得 DOM 節點 ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const ctrlNostrilBtn = document.getElementById('ctrlNostrilBtn');
+    const ctrlThroatBtn = document.getElementById('ctrlThroatBtn');
+    const ctrlGlottisBtn = document.getElementById('ctrlGlottisBtn');
+
+    const btnStatusNostril = document.getElementById('btnStatusNostril');
+    const btnStatusThroat = document.getElementById('btnStatusThroat');
+    const btnStatusGlottis = document.getElementById('btnStatusGlottis');
+
+    const oxygenBar = document.getElementById('oxygenBar');
+    const oxygenValText = document.getElementById('oxygenValText');
+    const lungBar = document.getElementById('lungBar');
+    const lungValText = document.getElementById('lungValText');
+    const buccalStatusText = document.getElementById('buccalStatusText');
+
+    const guideHintText = document.getElementById('guideHintText');
+    const cycleStepTag = document.getElementById('cycleStepTag');
+    const toastAlert = document.getElementById('toastAlert');
+    const scoreBadge = document.getElementById('scoreBadge');
+    const levelBadge = document.getElementById('levelBadge');
+
+    const gameModal = document.getElementById('gameModal');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalDesc = document.getElementById('modalDesc');
+    const modalRestartBtn = document.getElementById('modalRestartBtn');
+
+    const modePractice = document.getElementById('modePractice');
+    const modeArcade = document.getElementById('modeArcade');
+
+    // --- 遊戲內部狀態 ---
+    const state = {
+      nostrilOpen: true,     // 鼻孔
+      throatDropped: false,  // 咽喉活塞：true=下沉吸氣, false=上提壓縮
+      glottisOpen: false,    // 聲門
+      
+      throatVisualOffset: 0, // 平滑動畫用 0~35
+      lungVolume: 0.35,      // 0.15~1.0
+      bloodOxygen: 85,       // 0~100
+      
+      cycleStep: 1,          // 預期完成的步驟 1~4
+      perfectCycles: 0,
+      mode: 'practice',      // 'practice' or 'arcade'
+      gameOver: false,
+      
+      // 氣體微粒陣列
+      particles: []
+    };
+
+    // --- 氣體粒子系統 (藍色=新鮮高氧, 玫瑰紅/灰=肺內廢氣) ---
+    class Particle {
+      constructor(x, y, type = 'fresh') {
+        this.x = x;
+        this.y = y;
+        this.type = type; // 'fresh' or 'stale'
+        this.vx = (Math.random() - 0.5) * 1.5;
+        this.vy = (Math.random() - 0.5) * 1.5;
+        this.life = 1.0;
+        this.decay = 0.008 + Math.random() * 0.005;
+        this.size = 3.5 + Math.random() * 2.5;
+      }
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life -= this.decay;
+      }
+      draw(c) {
+        c.save();
+        c.globalAlpha = Math.max(0, this.life);
+        c.beginPath();
+        c.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        c.fillStyle = this.type === 'fresh' ? '#38bdf8' : '#f43f5e';
+        c.shadowColor = this.type === 'fresh' ? '#0284c7' : '#e11d48';
+        c.shadowBlur = 6;
+        c.fill();
+        c.restore();
+      }
+    }
+
+    // 發射氣流粒子群
+    function emitParticles(sourceX, sourceY, targetX, targetY, type, count = 8) {
+      for (let i = 0; i < count; i++) {
+        let p = new Particle(sourceX + (Math.random() - 0.5) * 10, sourceY + (Math.random() - 0.5) * 10, type);
+        let angle = Math.atan2(targetY - sourceY, targetX - sourceX);
+        let speed = 3.5 + Math.random() * 2.5;
+        p.vx = Math.cos(angle) * speed + (Math.random() - 0.5) * 1.2;
+        p.vy = Math.sin(angle) * speed + (Math.random() - 0.5) * 1.2;
+        state.particles.push(p);
+      }
+    }
+
+    // --- 訊息提示 (Toast) ---
+    let toastTimer = null;
+    function showToast(msg, isSuccess = true) {
+      clearTimeout(toastTimer);
+      toastAlert.textContent = msg;
+      if (isSuccess) {
+        toastAlert.className = "absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full text-xs font-bold font-mono transition-all duration-200 opacity-100 pointer-events-none bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-lg shadow-emerald-950 flex items-center gap-1.5";
+      } else {
+        toastAlert.className = "absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full text-xs font-bold font-mono transition-all duration-200 opacity-100 pointer-events-none bg-rose-500/20 text-rose-300 border-rose-500/50 shadow-lg shadow-rose-950 flex items-center gap-1.5";
+      }
+      toastTimer = setTimeout(() => {
+        toastAlert.classList.add('opacity-0');
+      }, 1600);
+    }
+
+    // --- 控制器切換操作 ---
+    function toggleNostril() {
+      if (state.gameOver) return;
+      state.nostrilOpen = !state.nostrilOpen;
+      updateUI();
+      evaluateStep();
+    }
+
+    function toggleThroat() {
+      if (state.gameOver) return;
+      state.throatDropped = !state.throatDropped;
+      updateUI();
+      evaluateStep();
+    }
+
+    function toggleGlottis() {
+      if (state.gameOver) return;
+      state.glottisOpen = !state.glottisOpen;
+      updateUI();
+      evaluateStep();
+    }
+
+    // --- 鍵盤監聽事件 ---
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat) return;
+      if (e.key === 'a' || e.key === 'A') {
+        ctrlNostrilBtn.classList.add('pressed');
+        toggleNostril();
+      } else if (e.key === 's' || e.key === 'S') {
+        ctrlThroatBtn.classList.add('pressed');
+        toggleThroat();
+      } else if (e.key === 'd' || e.key === 'D') {
+        ctrlGlottisBtn.classList.add('pressed');
+        toggleGlottis();
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (e.key === 'a' || e.key === 'A') ctrlNostrilBtn.classList.remove('pressed');
+      if (e.key === 's' || e.key === 'S') ctrlThroatBtn.classList.remove('pressed');
+      if (e.key === 'd' || e.key === 'D') ctrlGlottisBtn.classList.remove('pressed');
+    });
+
+    ctrlNostrilBtn.addEventListener('click', toggleNostril);
+    ctrlThroatBtn.addEventListener('click', toggleThroat);
+    ctrlGlottisBtn.addEventListener('click', toggleGlottis);
+
+    // --- UI 狀態刷新 ---
+    function updateUI() {
+      // 鼻孔按鈕
+      if (state.nostrilOpen) {
+        btnStatusNostril.textContent = "開啟 (Open)";
+        btnStatusNostril.className = "mt-1 text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
+      } else {
+        btnStatusNostril.textContent = "閉鎖 (Closed)";
+        btnStatusNostril.className = "mt-1 text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/40";
+      }
+
+      // 咽喉按鈕
+      if (state.throatDropped) {
+        btnStatusThroat.textContent = "下沉擴張 (Expands ⬇️)";
+        btnStatusThroat.className = "mt-1 text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/40";
+        buccalStatusText.textContent = "吸氣充裝負壓";
+        buccalStatusText.className = "font-mono text-xs font-bold text-sky-400";
+      } else {
+        btnStatusThroat.textContent = "上提壓縮 (Contracts ⬆️)";
+        btnStatusThroat.className = "mt-1 text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40";
+        buccalStatusText.textContent = "正壓推擠加壓";
+        buccalStatusText.className = "font-mono text-xs font-bold text-amber-300";
+      }
+
+      // 聲門按鈕
+      if (state.glottisOpen) {
+        btnStatusGlottis.textContent = "敞開 (Open)";
+        btnStatusGlottis.className = "mt-1 text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
+      } else {
+        btnStatusGlottis.textContent = "關閉 (Closed)";
+        btnStatusGlottis.className = "mt-1 text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/40";
+      }
+
+      // 儀表條
+      oxygenBar.style.width = `${Math.round(state.bloodOxygen)}%`;
+      oxygenValText.textContent = `${Math.round(state.bloodOxygen)}%`;
+      if (state.bloodOxygen < 40) {
+        oxygenValText.className = "font-mono font-bold text-rose-400 text-sm animate-pulse";
+      } else {
+        oxygenValText.className = "font-mono font-bold text-sky-400 text-sm";
+      }
+
+      lungBar.style.width = `${Math.round(state.lungVolume * 100)}%`;
+      lungValText.textContent = `${Math.round(state.lungVolume * 100)}%`;
+
+      scoreBadge.textContent = state.perfectCycles;
+    }
+
+    // --- 核心評估：正壓通氣 4 步驟狀態機 ---
+    function evaluateStep() {
+      const s = state.cycleStep;
+
+      // 1. 吸氣一：鼻孔開、喉底降、聲門閉
+      if (s === 1) {
+        if (state.nostrilOpen && state.throatDropped && !state.glottisOpen) {
+          // 成功達成第 1 步
+          emitParticles(175, 230, 260, 310, 'fresh', 14);
+          showToast("✨ 第 1 步成功！新鮮空氣湧入口腔");
+          advanceStep(2);
+        }
+      }
+      // 2. 吸氣二 (核心正壓打氣)：鼻孔閉、喉底推、聲門開
+      else if (s === 2) {
+        // 錯誤禁忌偵測：鼻孔沒關就推喉底且開聲門，氣體漏光
+        if (state.nostrilOpen && !state.throatDropped && state.glottisOpen) {
+          showToast("❌ 漏氣！鼻孔未關閉，正壓無法充入肺部！", false);
+          state.bloodOxygen = Math.max(10, state.bloodOxygen - 5);
+        }
+
+        if (!state.nostrilOpen && !state.throatDropped && state.glottisOpen) {
+          // 成功達成正壓充肺！
+          emitParticles(260, 300, 500, 290, 'fresh', 20);
+          state.lungVolume = Math.min(0.95, state.lungVolume + 0.45);
+          state.bloodOxygen = Math.min(100, state.bloodOxygen + 18);
+          showToast("🚀 正壓注入！空氣成功壓進肺囊！", true);
+          advanceStep(3);
+        }
+      }
+      // 3. 呼氣一：肺部彈性收縮、喉底再次下降接納廢氣、聲門仍開、鼻孔仍閉
+      else if (s === 3) {
+        if (!state.nostrilOpen && state.throatDropped && state.glottisOpen) {
+          // 肺廢氣倒流入口腔
+          emitParticles(500, 290, 260, 310, 'stale', 16);
+          state.lungVolume = Math.max(0.2, state.lungVolume - 0.4);
+          showToast("💨 肺壁回縮！廢氣暫時排入口腔中");
+          advanceStep(4);
+        }
+      }
+      // 4. 呼氣二：聲門關！鼻孔開！喉底向上壓縮將廢氣噴出體外
+      else if (s === 4) {
+        if (state.nostrilOpen && !state.throatDropped && !state.glottisOpen) {
+          // 噴射廢氣
+          emitParticles(260, 300, 150, 220, 'stale', 16);
+          showToast("🎉 完整循環！廢氣噴出體外！", true);
+          state.perfectCycles++;
+          advanceStep(1);
+        }
+      }
+
+      updateChecklistVisuals();
+    }
+
+    function advanceStep(next) {
+      state.cycleStep = next;
+      updateChecklistVisuals();
+    }
+
+    function updateChecklistVisuals() {
+      const step = state.cycleStep;
+      cycleStepTag.textContent = `${step} / 4 ${['', '吸氣裝填', '正壓泵氣', '肺部回縮', '廢氣排出'][step]}`;
+
+      for (let i = 1; i <= 4; i++) {
+        const item = document.getElementById(`checklist${i}`);
+        const icon = document.getElementById(`checkIcon${i}`);
+        if (i === step) {
+          item.className = "p-2.5 rounded-xl border border-sky-500/60 bg-sky-500/20 transition flex items-center justify-between shadow-md";
+          icon.className = "ph-bold ph-arrow-right text-sky-400 text-base animate-pulse";
+        } else if (i < step || (step === 1 && state.perfectCycles > 0)) {
+          item.className = "p-2.5 rounded-xl border border-slate-800 bg-slate-950/60 transition flex items-center justify-between opacity-80";
+          icon.className = "ph-bold ph-check text-emerald-400 text-base";
+        } else {
+          item.className = "p-2.5 rounded-xl border border-slate-800 bg-slate-950/30 transition flex items-center justify-between opacity-50";
+          icon.className = "ph-bold ph-circle text-slate-600 text-base";
+        }
+      }
+
+      // 指引文字
+      if (step === 1) {
+        guideHintText.textContent = "第 1 步：打開鼻孔 [A]，向下擴張喉底 [S]（聲門閉）吸入空氣！";
+      } else if (step === 2) {
+        guideHintText.textContent = "第 2 步核心：關閉鼻孔 [A]，開啟聲門 [D]，全力向上推頂喉底 [S] 泵氣！";
+      } else if (step === 3) {
+        guideHintText.textContent = "第 3 步：保持鼻孔關閉，喉底再次下降 [S]，接納自肺部回縮的廢氣！";
+      } else if (step === 4) {
+        guideHintText.textContent = "第 4 步：關閉聲門 [D]，打開鼻孔 [A]，向上擠壓喉底 [S] 噴出廢氣！";
+      }
+    }
+
+    // --- 模式切換 ---
+    modePractice.addEventListener('click', () => {
+      state.mode = 'practice';
+      modePractice.className = "px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold transition";
+      modeArcade.className = "px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 hover:text-white transition";
+      levelBadge.textContent = "教學練習模式";
+    });
+
+    modeArcade.addEventListener('click', () => {
+      state.mode = 'arcade';
+      modeArcade.className = "px-2.5 py-1 rounded-lg bg-rose-600 text-white font-bold transition";
+      modePractice.className = "px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 hover:text-white transition";
+      levelBadge.textContent = "🔥 極限求生 (加速耗氧)";
+      state.bloodOxygen = 80;
+    });
+
+    // --- 遊戲重開 ---
+    modalRestartBtn.addEventListener('click', () => {
+      gameModal.classList.add('hidden');
+      state.bloodOxygen = 85;
+      state.perfectCycles = 0;
+      state.gameOver = false;
+      state.cycleStep = 1;
+      updateUI();
+      updateChecklistVisuals();
+    });
+
+    // --- Canvas 繪圖渲染引擎 ---
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 平滑內插咽喉喉底偏移
+      const targetThroat = state.throatDropped ? 35 : -10;
+      state.throatVisualOffset += (targetThroat - state.throatVisualOffset) * 0.15;
+
+      // 平滑肺部體積回縮
+      if (!state.glottisOpen) {
+        // 聲門關閉時，肺部緩慢耗氧微縮
+        state.lungVolume = Math.max(0.2, state.lungVolume - 0.0003);
+      }
+
+      // 地面陰影
+      ctx.beginPath();
+      ctx.ellipse(430, 430, 280, 25, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(2, 6, 23, 0.65)";
+      ctx.fill();
+
+      // --- 繪製青蛙解剖結構 ---
+
+      // 1. 大腿與後足 (坐姿)
+      ctx.beginPath();
+      ctx.moveTo(520, 340);
+      ctx.quadraticCurveTo(660, 310, 680, 390);
+      ctx.quadraticCurveTo(680, 420, 620, 425);
+      ctx.quadraticCurveTo(540, 420, 500, 370);
+      ctx.closePath();
+      ctx.fillStyle = "#2e7d32";
+      ctx.strokeStyle = "#1b5e20";
+      ctx.lineWidth = 5;
+      ctx.fill();
+      ctx.stroke();
+
+      // 2. 前肢撐地
+      ctx.beginPath();
+      ctx.moveTo(330, 350);
+      ctx.lineTo(310, 420);
+      ctx.lineTo(270, 430);
+      ctx.strokeStyle = "#1b5e20";
+      ctx.lineWidth = 10;
+      ctx.lineCap = "round";
+      ctx.stroke();
+
+      // 3. 綠色青蛙軀幹
+      ctx.beginPath();
+      ctx.moveTo(170, 240); // 吻端
+      ctx.quadraticCurveTo(240, 160, 370, 175); // 頭頂至背部
+      ctx.quadraticCurveTo(530, 200, 600, 270); // 背側流線
+      ctx.quadraticCurveTo(640, 340, 580, 400); // 臀部
+      ctx.lineTo(380, 400);
+      ctx.lineTo(280, 360);
+      ctx.closePath();
+      ctx.fillStyle = "#43a047";
+      ctx.strokeStyle = "#1b5e20";
+      ctx.lineWidth = 6;
+      ctx.fill();
+      ctx.stroke();
+
+      // 背部白條紋裝飾
+      ctx.beginPath();
+      ctx.moveTo(310, 215);
+      ctx.quadraticCurveTo(430, 230, 500, 280);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
+      ctx.lineWidth = 8;
+      ctx.lineCap = "round";
+      ctx.stroke();
+
+      // 4. 動態口咽腔底板 (白色咽喉喉囊 - 由 state.throatVisualOffset 控制)
+      const tOff = state.throatVisualOffset;
+      ctx.beginPath();
+      ctx.moveTo(170, 240); // 吻端下顎起始
+      ctx.quadraticCurveTo(160, 280 + tOff * 0.5, 200, 320 + tOff); // 喉底曲線
+      ctx.quadraticCurveTo(250, 340 + tOff * 0.9, 290, 320); // 頸胸交界
+      ctx.lineTo(260, 270);
+      ctx.closePath();
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#1b5e20";
+      ctx.lineWidth = 5;
+      ctx.fill();
+      ctx.stroke();
+
+      // 5. 囊狀肺 (Lungs) - 依肺體積縮放
+      ctx.save();
+      ctx.translate(480, 280);
+      const lungScale = 0.5 + state.lungVolume * 0.7; // 0.6 ~ 1.2
+      ctx.scale(lungScale, lungScale);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 55, 36, 0.1, 0, Math.PI * 2);
+      ctx.fillStyle = state.lungVolume > 0.5 ? "rgba(255, 255, 255, 0.95)" : "rgba(251, 113, 133, 0.7)";
+      ctx.strokeStyle = "#e11d48";
+      ctx.lineWidth = 3;
+      ctx.fill();
+      ctx.stroke();
+
+      // 肺泡內微血管紋理
+      ctx.beginPath();
+      ctx.arc(-15, -8, 12, 0, Math.PI * 2);
+      ctx.arc(15, 6, 14, 0, Math.PI * 2);
+      ctx.arc(0, 10, 10, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(225, 29, 72, 0.35)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
+
+      // 6. 氣流通路管壁
+      ctx.beginPath();
+      ctx.moveTo(180, 235);
+      ctx.quadraticCurveTo(220, 260, 260, 270);
+      ctx.lineTo(430, 280);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.lineWidth = 14;
+      ctx.lineCap = "round";
+      ctx.stroke();
+
+      // 7. 聲門閘門 (Glottis) - 位於 (420, 280)
+      ctx.save();
+      ctx.translate(420, 280);
+      if (state.glottisOpen) {
+        // 聲門打開 (綠色上下分離)
+        ctx.strokeStyle = "#10b981";
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(0, -18); ctx.lineTo(10, -8);
+        ctx.moveTo(0, 18); ctx.lineTo(10, 8);
+        ctx.stroke();
+      } else {
+        // 聲門緊閉 (紅色閉鎖)
+        ctx.strokeStyle = "#ef4444";
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.moveTo(0, -16); ctx.lineTo(0, 16);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 8. 外鼻孔閥門 (Nostril) - 位於 (175, 226)
+      ctx.save();
+      ctx.translate(175, 226);
+      if (state.nostrilOpen) {
+        ctx.fillStyle = "#020617";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 4, 6, -0.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#10b981";
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = "#ef4444";
+        ctx.lineWidth = 3.5;
+        ctx.beginPath();
+        ctx.moveTo(-4, -4);
+        ctx.lineTo(4, 4);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 9. 青蛙大眼睛
+      ctx.save();
+      ctx.translate(245, 185);
+      ctx.beginPath();
+      ctx.arc(0, 0, 20, 0, Math.PI * 2);
+      ctx.fillStyle = "#2e7d32";
+      ctx.strokeStyle = "#1b5e20";
+      ctx.lineWidth = 4;
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(2, 0, 15, 0, Math.PI * 2);
+      ctx.fillStyle = "#facc15";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(3, 0, 11, 5, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "#09090b";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(6, -4, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.restore();
+
+      // --- 繪製微粒 ---
+      for (let i = state.particles.length - 1; i >= 0; i--) {
+        const p = state.particles[i];
+        p.update();
+        p.draw(ctx);
+        if (p.life <= 0) {
+          state.particles.splice(i, 1);
+        }
+      }
+
+      // --- 標籤指引文字 (標示解剖部位) ---
+      ctx.font = "bold 12px 'Noto Sans TC', sans-serif";
+      ctx.fillStyle = state.nostrilOpen ? "#38bdf8" : "#f87171";
+      ctx.fillText(`鼻孔: ${state.nostrilOpen ? '開' : '關'}`, 140, 205);
+
+      ctx.fillStyle = state.glottisOpen ? "#4ade80" : "#f87171";
+      ctx.fillText(`聲門: ${state.glottisOpen ? '開' : '關'}`, 400, 250);
+
+      ctx.fillStyle = "#e2e8f0";
+      ctx.fillText("口咽腔活塞", 200, 370 + tOff * 0.5);
+
+      ctx.fillStyle = "#f43f5e";
+      ctx.fillText("囊狀肺", 465, 275);
+    }
+
+    // --- 生理代謝與主計時循環 ---
+    let lastTick = performance.now();
+    function gameLoop(now) {
+      const dt = (now - lastTick) / 1000;
+      lastTick = now;
+
+      if (!state.gameOver) {
+        // 血氧持續消耗 (極限模式消耗速度倍增)
+        const drainRate = state.mode === 'arcade' ? 3.5 : 1.2;
+        state.bloodOxygen = Math.max(0, state.bloodOxygen - drainRate * dt);
+
+        // 若血氧耗盡，遊戲結束
+        if (state.bloodOxygen <= 0) {
+          state.gameOver = true;
+          modalTitle.textContent = "青蛙缺氧窒息！";
+          modalDesc.textContent = "血氧歸零！青蛙無法透過正壓打氣吸入足夠氧氣。請記住 SOP：打開鼻孔吸氣、關閉鼻孔正壓灌入肺部！";
+          modalRestartBtn.textContent = "重新挑戰";
+          gameModal.classList.remove('hidden');
+        }
+
+        updateUI();
+      }
+
+      render();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // 初始化與啟動
+    updateUI();
+    updateChecklistVisuals();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
